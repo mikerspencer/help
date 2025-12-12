@@ -1,0 +1,86 @@
+---
+title: "Ping tests - on VPN"
+author: "Mike Spencer"
+date: '`r Sys.Date()`'
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = F)
+```
+
+```{r packages}
+library(tidyverse)
+```
+
+
+## Intro
+
+This report collates ping tests to remote servers.
+Three connections are tested:
+
+* Local router
+* VM server
+* Control site (bbc)
+
+```{r servers}
+servers = c("192.168.50.1", "your.vm", "bbc.co.uk")
+```
+
+
+## Collecting pings
+
+Parallel pings to servers so they are comparable.
+Change `interval` and `duration` settings as required.
+
+
+```{r collecting}
+# In seconds
+interval = 15
+duration = 300
+
+df = tibble(ts = Sys.time(),
+            server = character(),
+            ping = NA)
+
+t0 = Sys.time()
+while (Sys.time() < t0 + duration) {
+  start_time = Sys.time()
+  
+  df_step = parallel::mclapply(servers, mc.cores = length(servers), function(i){
+    tibble(ts = Sys.time(),
+           ping = system(paste0("ping -c 1 ", i), intern = T)[2]) %>% 
+      separate(ping, c("junk", "keep"), sep = "time=") %>% 
+      mutate(ping = str_remove(keep, " ms"),
+             ping = as.numeric(ping),
+             server = i) %>% 
+      select(ts, server, ping)
+  }) %>% 
+    bind_rows()
+  
+  df = bind_rows(df, df_step)
+
+sleep_time = start_time + interval - Sys.time()
+if (sleep_time > 0){
+  Sys.sleep(sleep_time)
+}
+}
+```
+
+
+## Results
+
+```{r results, fig.height=7, fig.width=10}
+df %>% 
+  ggplot(aes(ts, ping,
+             colour = server, fill = server)) +
+  geom_point(size = 1.5) +
+  stat_smooth() +
+  labs(title = "How slow is the response?",
+       x = "Time stamp",
+       y = "Ping (ms)") +
+  theme_bw() +
+  theme(text = element_text(size = 18),
+        legend.position="bottom")
+```
+
